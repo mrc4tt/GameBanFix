@@ -2,6 +2,8 @@
 #include "addresses.h"
 #include "khook.hpp"
 
+#include <cctype>
+
 CGameConfig::CGameConfig(const std::string& gameDir, const std::string& path)
 {
     this->m_szGameDir = gameDir;
@@ -185,27 +187,38 @@ std::string CGameConfig::GetDirectoryName(const std::string& directoryPathInput)
     return "";
 }
 
+// Turns a gamedata signature into KHook::LookupSignature's format: space-separated
+// hex bytes, one '?' per wildcard byte. Accepts IDA style ("48 8D 0D ? ? ? ?", '??'
+// also allowed) and the older escaped style ("\x48\x8D\x0D\x2A..." with \x2A as the
+// wildcard), so a gamedata file in either format keeps loading.
 std::string CGameConfig::HexToPattern(const char* src)
 {
     std::string pattern;
+    auto append = [&pattern](const std::string& token) {
+        if (!pattern.empty()) pattern += ' ';
+        pattern += token;
+    };
 
     for (const char* p = src; *p;)
     {
         if (p[0] == '\\' && (p[1] == 'x' || p[1] == 'X') && p[2] && p[3])
         {
-            char byteStr[3] = { p[2], p[3], '\0' };
-
-            if (!pattern.empty()) pattern += ' ';
-
-            if (strcmp(byteStr, "2A") == 0 || strcmp(byteStr, "2a") == 0) pattern += '?';
-            else
-                pattern += byteStr;
-
+            std::string byte = { p[2], p[3] };
+            append((byte == "2A" || byte == "2a") ? "?" : byte);
             p += 4;
+        }
+        else if (*p == '?')
+        {
+            append("?");
+            p += (p[1] == '?') ? 2 : 1;
+        }
+        else if (isxdigit((unsigned char)p[0]) && isxdigit((unsigned char)p[1]))
+        {
+            append(std::string{ p[0], p[1] });
+            p += 2;
         }
         else
         {
-            pattern += *p;
             p++;
         }
     }
